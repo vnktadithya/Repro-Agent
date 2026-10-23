@@ -1,0 +1,84 @@
+import os
+from pathlib import Path
+from dotenv import load_dotenv
+import requests
+
+base_dir = Path(__file__).resolve().parent.parent
+env_path = base_dir / '.env'
+load_dotenv(dotenv_path=env_path, override=True)
+
+GITHUB_TOKEN = os.getenv("GITHUB_TOKEN")
+if not GITHUB_TOKEN:
+    raise ValueError("Missing GITHUB_TOKEN. Get one from GitHub Developer Settings.")
+
+url = "https://api.github.com/graphql"
+
+headers = {
+    "Authorization": f"Bearer {GITHUB_TOKEN}",
+    "User-Agent": "Python-Requests-GraphQL"
+}
+
+# FIXED: Removed illegal 'nodes' wrappers and nested 'files' properties properly
+query = """
+query($owner: String!, $name: String!, $number: Int!) {
+    repository(owner: $owner, name: $name) {
+        pullRequest(number: $number) {
+            number
+            merged
+            mergedAt
+            baseRefName
+            mergeCommit {
+                oid
+            }
+            commits {
+                totalCount
+            }
+            closingIssuesReferences(first: 5) {
+                totalCount
+                nodes {
+                    number
+                    repository {
+                        nameWithOwner
+                    }
+                } 
+            }  
+            files(first: 100) {
+                totalCount
+                nodes {
+                    path
+                    changeType
+                }
+            }
+        }
+    }
+    rateLimit {
+        cost
+        remaining
+        resetAt
+    }
+}
+"""
+
+variables = {
+    "owner": "OpenHands",
+    "name": "software-agent-sdk",
+    "number": 4876
+}
+
+payload = {
+    "query": query,
+    "variables": variables
+}
+
+# FIXED: Changed requests.get to requests.post
+response = requests.post(url=url, headers=headers, timeout=10, json=payload)
+
+if response.status_code == 200:
+    json_response = response.json()
+    if 'errors' in json_response:
+        print("Error occured.")
+        print(json_response['errors'])
+    else:
+        print(json_response)
+else:
+    print(f"Error {response.status_code}: {response.text}")
