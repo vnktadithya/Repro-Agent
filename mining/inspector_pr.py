@@ -10,7 +10,7 @@ base_dir = Path(__file__).resolve().parent.parent
 env_path = base_dir / '.env'
 load_dotenv(dotenv_path=env_path, override=True)
 
-GITHUB_TOKEN = os.getenv("GitHub_TOKEN")
+GITHUB_TOKEN = os.getenv("GITHUB_TOKEN")
 if not GITHUB_TOKEN:
     raise ValueError("Missing GITHUB_TOKEN. Get one from GitHub Developer Settings.")
 
