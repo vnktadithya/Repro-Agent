@@ -38,8 +38,8 @@ output_dir = base_dir / "mining" / "raw"
 output_dir.mkdir(parents=True, exist_ok=True)
 file_path = output_dir / f"pr_{args.repo}_{args.pr_number}.json"
 
-with open(file_path, 'w') as f:
-    f.write(json.dumps(response.text))
+with open(file_path, 'w', encoding='utf8') as f:
+    f.write(response.text)
 
 final_response = response.json()
 print(f"Merged: {final_response['merged']}")
