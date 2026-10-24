@@ -79,6 +79,6 @@ if response.status_code == 200:
         print(json_response['errors'])
     else:
         with open("tests/fixtures/pr_4876.json", 'w', encoding='utf8') as f:
-            f.write(json.dumps(response.text, indent=2))
+            f.write(json.dumps(response.json(), indent=2))
 else:
     print(f"Error {response.status_code}: {response.text}")
