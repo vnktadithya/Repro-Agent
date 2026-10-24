@@ -71,6 +71,7 @@ payload = {
 }
 
 response = requests.post(url=url, headers=headers, timeout=10, json=payload)
+json_response = response.json()
 
 if response.status_code == 200:
     json_response = response.json()
@@ -78,7 +79,8 @@ if response.status_code == 200:
         print("Error occured.")
         print(json_response['errors'])
     else:
-        with open("tests/fixtures/pr_4876.json", 'w', encoding='utf8') as f:
-            f.write(json.dumps(response.json(), indent=2))
+        file_path = f"{base_dir}/tests/fixtures/pr_4876.json"
+        with open(file_path, 'w', encoding='utf8') as f:
+            f.write(json.dumps(json_response["data"]["repository"]["pullRequest"], indent=2))
 else:
     print(f"Error {response.status_code}: {response.text}")

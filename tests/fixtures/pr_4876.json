@@ -1,63 +1,52 @@
 {
-    "data": {
+  "number": 4876,
+  "merged": true,
+  "mergedAt": "2026-09-21T13:12:13Z",
+  "baseRefName": "main",
+  "mergeCommit": {
+    "oid": "09e8980c37abe4e02e29bb9bbfb869811415cfd5"
+  },
+  "commits": {
+    "totalCount": 13
+  },
+  "closingIssuesReferences": {
+    "totalCount": 1,
+    "nodes": [
+      {
+        "number": 4863,
         "repository": {
-            "pullRequest": {
-                "number": 4876,
-                "merged": true,
-                "mergedAt": "2026-09-21T13:12:13Z",
-                "baseRefName": "main",
-                "mergeCommit": {
-                    "oid": "09e8980c37abe4e02e29bb9bbfb869811415cfd5"
-                },
-                "commits": {
-                    "totalCount": 13
-                },
-                "closingIssuesReferences": {
-                    "totalCount": 1,
-                    "nodes": [
-                        {
-                            "number": 4863,
-                            "repository": {
-                                "nameWithOwner": "OpenHands/software-agent-sdk"
-                            }
-                        }
-                    ]
-                },
-                "files": {
-                    "totalCount": 6,
-                    "nodes": [
-                        {
-                            "path": ".pr/verify_base_context_preserved.py",
-                            "changeType": "ADDED"
-                        },
-                        {
-                            "path": "openhands-sdk/openhands/sdk/context/agent_context.py",
-                            "changeType": "MODIFIED"
-                        },
-                        {
-                            "path": "openhands-sdk/openhands/sdk/workspace/remote/base.py",
-                            "changeType": "MODIFIED"
-                        },
-                        {
-                            "path": "openhands-workspace/openhands/workspace/cloud/workspace.py",
-                            "changeType": "MODIFIED"
-                        },
-                        {
-                            "path": "tests/sdk/workspace/remote/test_remote_workspace.py",
-                            "changeType": "MODIFIED"
-                        },
-                        {
-                            "path": "tests/workspace/test_cloud_workspace_repos.py",
-                            "changeType": "MODIFIED"
-                        }
-                    ]
-                }
-            }
-        },
-        "rateLimit": {
-            "cost": 1,
-            "remaining": 4997,
-            "resetAt": "2026-10-24T06:29:38Z"
+          "nameWithOwner": "OpenHands/software-agent-sdk"
         }
-    }
+      }
+    ]
+  },
+  "files": {
+    "totalCount": 6,
+    "nodes": [
+      {
+        "path": ".pr/verify_base_context_preserved.py",
+        "changeType": "ADDED"
+      },
+      {
+        "path": "openhands-sdk/openhands/sdk/context/agent_context.py",
+        "changeType": "MODIFIED"
+      },
+      {
+        "path": "openhands-sdk/openhands/sdk/workspace/remote/base.py",
+        "changeType": "MODIFIED"
+      },
+      {
+        "path": "openhands-workspace/openhands/workspace/cloud/workspace.py",
+        "changeType": "MODIFIED"
+      },
+      {
+        "path": "tests/sdk/workspace/remote/test_remote_workspace.py",
+        "changeType": "MODIFIED"
+      },
+      {
+        "path": "tests/workspace/test_cloud_workspace_repos.py",
+        "changeType": "MODIFIED"
+      }
+    ]
+  }
 }
