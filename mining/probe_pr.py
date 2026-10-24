@@ -71,7 +71,6 @@ payload = {
 }
 
 response = requests.post(url=url, headers=headers, timeout=10, json=payload)
-json_response = response.json()
 
 if response.status_code == 200:
     json_response = response.json()
