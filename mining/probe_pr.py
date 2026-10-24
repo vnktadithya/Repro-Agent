@@ -2,6 +2,7 @@ import os
 from pathlib import Path
 from dotenv import load_dotenv
 import requests
+import json
 
 base_dir = Path(__file__).resolve().parent.parent
 env_path = base_dir / '.env'
@@ -18,7 +19,6 @@ headers = {
     "User-Agent": "Python-Requests-GraphQL"
 }
 
-# FIXED: Removed illegal 'nodes' wrappers and nested 'files' properties properly
 query = """
 query($owner: String!, $name: String!, $number: Int!) {
     repository(owner: $owner, name: $name) {
@@ -70,7 +70,6 @@ payload = {
     "variables": variables
 }
 
-# FIXED: Changed requests.get to requests.post
 response = requests.post(url=url, headers=headers, timeout=10, json=payload)
 
 if response.status_code == 200:
@@ -79,6 +78,7 @@ if response.status_code == 200:
         print("Error occured.")
         print(json_response['errors'])
     else:
-        print(json_response)
+        with open("tests/fixtures/pr_4876.json", 'w', encoding='utf8') as f:
+            f.write(json.dumps(response.text, indent=2))
 else:
     print(f"Error {response.status_code}: {response.text}")
