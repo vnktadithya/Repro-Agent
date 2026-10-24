@@ -73,3 +73,31 @@ Also caused when the test path doesn't exist.
 - Issue linking: how "the PR closes exactly one issue" is detected in code — decided when the mining code is written.
 - Partial-error environments (some tests pass, many error): counted as "runs" under the current rule; the error counts recorded Saturday will show whether the rule needs tightening.
 - PRs closing more than one issue: excluded for now; revisit if the candidate count runs short.
+
+--
+
+## Fri Oct 23, 2026 — Sprint 0: issue linking + path classifier
+
+### Issue linking (closes the Oct 21 open question)
+- Source: GraphQl is being used, because it exactly returns the number of issued closed with respect to that pull request. The code exists in `mining/probe_pr.py`. The `closingIssuesReferences` field in the response object shows the list of issues closed by the PR which are recorded by GitHub. It covers all the links made in the UI 
+- Why not REST / body regex: REST has no linked issue data at all. And for the Regex, it misses the links present in the UI and also, regex cannot find the cross repo issue references. It just check the issue number and returns as if the issue was from that repo.
+- Known blind spot: when the test like `Fixes #xxxx` is present only in the commit message or in the UI ans not in the PR body, we will miss those PR's which affects the `recall` metric. I am not patching a fix around this right now. Will look into this in future. 
+- Check 2 scope (same repo only?): Yes, we select the PR's which solves the issues in the same repo only. We can confirm this by looking into the returned **JSON** Response. We just compare each closing reference's `repository.nameWithOwner` to the PR's own repo, and reject the PR if they don't match. Cross-Repo PR's are excluded for now.
+- Verified on PR #4876: 
+   -> closing reference → {'totalCount': 1, 'nodes': [{'number': 4863, 'repository': {'nameWithOwner': 'OpenHands/software-agent-sdk'}}]} (output from GraphQL query)
+   -> files → `.pr/verify_base_context_preserved.py`, `openhands-sdk/openhands/sdk/context/agent_context.py`, `openhands-sdk/openhands/sdk/workspace/remote/base.py`, `openhands-workspace/openhands/workspace/cloud/workspace.py`, `tests/sdk/workspace/remote/test_remote_workspace.py`, `tests/workspace/test_cloud_workspace_repos.py`
+   -> result: 3 source / 2 test / 1 other matching the same result as OCt 21.
+   -> merge commit → `09e8980c37abe4e02e29bb9bbfb869811415cfd5`
+
+### Path classifier
+- Dot-folder rule: Considered all the root-folders which start with a `.` to be in the `other` patch. Ex: `.github`, `.example-test-results` etc.
+- Excluded directories (their `.py` = other):
+   - docs -> The `.py` files present in the docs folder are not imported by any package or not used by test patch, so they are excluded.
+   - examples -> These are the scripts user runs. The package never imports them. So they are excluded. 
+- Config files counted as source: configuration files are considered under source patch when modified like `pyproject.toml`, `setup.cfg`(as of now). Because, when they change, they matter for testing the bug which was claimed to be solved. `setup.py` wich is also a config file is directly considered as `source` as it is already a `.py` file. 
+- Folder matching depth: In the code, folders can be matched at any depth and can be listed under respective patch. **The trade-off:** Because of this, any `examples` or `docs` present inside any packages are considered to be `other`. The `.pyi` files are considered under `other` patch as they contain the structural definition of a package and not the executable code.
+- Deleted files and check 3: Usually, the check is when the test_patch is applied, they should fail and they should pass when source_patch is applied on top of it. But, when the change type is `Deleted` and when any of the test files or test funcitons are deleted, we cannot do the Fail_To_Pass test on it. A test file is counted only if the change type is anything other than `DELETED`.
+- Tests: 17 paths — `python -m pytest tests/test_classify_path.py` → 17 passed
+
+### Measured
+- GraphQL cost: single-PR query = 1 point; 4,997 of 5,000 remaining after the probe
