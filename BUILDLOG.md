@@ -114,19 +114,19 @@ Also caused when the test path doesn't exist.
 | 3 | multiple_issues | `closingIssuesReferences.totalCount` | count > 1 |
 | 4 | cross_repo_issue | `closingIssuesReferences.nodes[0].repository.nameWithOwner` | The issue and PR are from different repos |
 | 5 | files_truncated | `files.totalCount` | count > 100 |
-| 6 | no_test_file | `files.nodes.path`, `files.nodes.changeType` | when the test patch contains no `.py` whose `changeType` is `DELETED`|
+| 6 | no_test_file | `files.nodes.path`, `files.nodes.changeType` | when the test patch contains no `.py` whose `changeType` is not `DELETED`|
 | 7 | no_source_file | `files.nodes.path`, `files.nodes.changeType` | when the source patch contains no `.py` whose `changeType` is present in `SOURCE_COUNTED_CHANGE_TYPES` in `utils.py` |
 | 8 | candidate | - | - |
 
 - Why `totalCount`, not `len(nodes)`: I fixed `closingIssuesReferences(first: 5)`. So at max, it will show 5. So the `len(nodes)` might be 5 in cases where there are more actual closing issues than 5.
 - Repo comparison: repo name is compared after normalizing using `.lower()` as the names are case-insensitive. 
-- Why the order is fixed: Each PR which passes through the candidate check exactly get one status which is the first check it fails. If we reorder the checks, the PR's might ge the status as a different failure mode. SO, these numbers can't be comparable from different runs if the checks are reordered. Also, for soem checks prior checks are important.
+- Why the order is fixed: Each PR which passes through the candidate check exactly get one status which is the first check it fails. If we reorder the checks, the PR's might ge the status as a different failure mode. So, these numbers can't be comparable from different runs if the checks are reordered. Also, for some checks prior checks are important.
 - Why `files_truncated` sits before checks 3–4: The checks 3 and 4 are to check if the test patch and the source contain the `.py` files. The truncated files check is before because we set the limit to 100 and if the number of files are above 100, the files which are next to the 100 are not fetched. If the only `.py` file in the test patch is in those above 100, the status for the PR will be `no_test_file` whih is wrong. A misreport will corrupt the funnel.
 
 ### Check 4: source change-type allow-list
 - What check 4 guarantees: It guarantees that the source patch contain atleast one `.py` file and it's `changeType` is one from the `SOURCE_COUNTED_CHANGE_TYPES` in `utils.py`.
 
-- Link to definition 2:
+- Link to definition 2: localiczation ground truth is the `.py` files which are present in the source patch and their `changeType` is `MODIFIED`.
 - `PatchStatus` values (from GitHub's schema):
    - MODIFIED → changes in existing files
    - DELETED → delete an existing file
@@ -143,9 +143,9 @@ Also caused when the test path doesn't exist.
 
 ### Limitations
 - Feature PRs: They are ignored as their previous versions doesn't include the files which are newly added in this PR. So,when a test patch is applied first, it fails with an import error or attribute error which is a trivial `Fail_to_Pass` which inflates the headline rate. In feature implementations, all the files in the source patch's `changeType` is `ADDED` and they are ignored as we dont get a true result of `Fail_to_Pass` output. There's no ground truth localization target
-=> POSSIBLE EXTENSION
+Note: Feature PR's is a POSSIBLE EXTENSION in future.
 
-- Mixed PRs and localization ground truth: For the mixed PR's where it includes the `changeType` as `ADDED` and `MODIFIED` for differnet files in the source patch, the ground truth must hold the ones whose `changeType` is in allowed-list.
+- Mixed PRs and localization ground truth: For the mixed PR's where it includes the `changeType` as `ADDED` and `MODIFIED` for different files in the source patch, the ground truth must hold the ones whose `changeType` is in allowed-list.
 
 ### Bug: `.py` requirement
 - What slipped: Initially missed the `.py` check in `candidate_check.py` for the cases `no_test_file` and `no_source_file`. 
