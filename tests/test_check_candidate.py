@@ -64,7 +64,6 @@ def test_test_file_changeType_Deleted(pr_node):
         if decide_patch(node['path']) == 'test':
             node['changeType'] = 'DELETED'
 
-    print(pr_node['files']['nodes'])
     assert check_candidate(pr_node, "OpenHands/software-agent-sdk") == 'no_test_file'
 
 def test_source_file_changeType_not_in_CHANGE_TYPES(pr_node):
@@ -72,7 +71,6 @@ def test_source_file_changeType_not_in_CHANGE_TYPES(pr_node):
         if decide_patch(node['path']) == 'source':
             node['changeType'] = 'ADDED'
 
-    print(pr_node['files']['nodes'])
     assert check_candidate(pr_node, "OpenHands/software-agent-sdk") == 'no_source_file'
 
 def test_test_patch_contains_no_py_files(pr_node):
@@ -92,3 +90,20 @@ def test_source_patch_contains_no_py_files(pr_node):
                                 })
 
     assert check_candidate(pr_node, "OpenHands/software-agent-sdk") == 'no_source_file'
+
+def test_candidate_check_order(pr_node):
+    pr_node['closingIssuesReferences']['totalCount'] = 2
+    pr_node['closingIssuesReferences']['nodes'].append({
+                                                    "number": 4867,
+                                                    "repository": {
+                                                    "nameWithOwner": "OpenHands/software-agent-sdk"
+                                                    }
+                                                }
+                                            )
+    pr_node['files']['nodes'] = [node for node in pr_node['files']['nodes'] if decide_patch(node['path']) != 'test']
+    pr_node['files']['nodes'].append({
+                                    "path": "tests/data/sample.json",
+                                    "changeType": "ADDED"
+                                })
+
+    assert check_candidate(pr_node, "OpenHands/software-agent-sdk") == 'multiple_issues'
