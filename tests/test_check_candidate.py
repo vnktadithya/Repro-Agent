@@ -2,6 +2,7 @@ import pytest
 from pathlib import Path
 import json
 from mining.candidate_check import check_candidate
+from mining.classify_path import decide_patch
 
 @pytest.fixture
 def pr_node():
@@ -35,3 +36,35 @@ def test_cross_repo_issue(pr_node):
 
 def test_changed_repo_name_case(pr_node):
     assert check_candidate(pr_node, "OpenHAnDs/softWaRe-ageNt-sdK") == 'candidate'
+
+def test_file_count(pr_node):
+    pr_node['files']['totalCount'] = 101
+    assert check_candidate(pr_node, "OpenHands/software-agent-sdk") == 'file_count_above_100'
+
+def test_no_test_files(pr_node):
+    pr_node['files']['nodes'] = [node for node in pr_node['files']['nodes'] if decide_patch(node['path']) != 'test']
+    pr_node['files']['totalCount'] = len(pr_node['files']['nodes']) 
+    
+    assert check_candidate(pr_node, "OpenHands/software-agent-sdk") == 'no_test_file'
+
+def test_no_source_file(pr_node):
+    pr_node['files']['nodes'] = [node for node in pr_node['files']['nodes'] if decide_patch(node['path']) != 'source']
+    pr_node['files']['totalCount'] = len(pr_node['files']['nodes'])
+
+    assert check_candidate(pr_node, "OpenHands/software-agent-sdk") == 'no_source_file'
+
+def test_test_file_changeType_Deleted(pr_node):
+    for node in pr_node['files']['nodes']:
+        if decide_patch(node['path']) == 'test':
+            node['changeType'] = 'DELETED'
+
+    print(pr_node['files']['nodes'])
+    assert check_candidate(pr_node, "OpenHands/software-agent-sdk") == 'no_test_file'
+
+def test_source_file_changeType_not_in_CHANGE_TYPES(pr_node):
+    for node in pr_node['files']['nodes']:
+        if decide_patch(node['path']) == 'source':
+            node['changeType'] = 'ADDED'
+
+    print(pr_node['files']['nodes'])
+    assert check_candidate(pr_node, "OpenHands/software-agent-sdk") == 'no_source_file'
