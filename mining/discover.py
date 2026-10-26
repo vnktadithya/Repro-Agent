@@ -1,11 +1,14 @@
 import requests
 import os
 import json
+import time
 from pathlib import Path
 from dotenv import load_dotenv
 from collections import Counter
 
 from .candidate_check import check_candidate
+from .backoff_utils import compute_backoff
+from .pipeline_state import load_state, record_page
 
 BASE_DIR = Path(__file__).resolve().parent.parent
 
@@ -15,6 +18,7 @@ REPO_NAME = f"{OWNER}/{NAME}"
 REPO_DIR = f"{OWNER}__{NAME}"     
 RAW_DIR = BASE_DIR / "mining" / "raw" / REPO_DIR
 PAGE_SIZE = 50
+MAX_ATTEMPTS = 5
 
 
 env_path = BASE_DIR / '.env'
@@ -103,37 +107,84 @@ def parse_page(text)-> tuple:
     return (total_count, nodes, has_next_page, end_cursor, rate_limit)
 
 
-def check_page(nodes, repo_name) -> Counter:
-    statuses = Counter([check_candidate(node, repo_name) for node in nodes])
+def check_page(nodes, repo_name) -> dict:
+    statuses = {}
+    for node in nodes:
+        key = f"{repo_name}#{node['number']}"
+        statuses[key] = check_candidate(node, repo_name)
+
     return statuses
 
-# temporary funcitons
-def fetch_first_page():
-    text = fetch_page(OWNER, NAME, cursor=None, first=PAGE_SIZE)
-    save_raw_page(REPO_DIR, 1, text)
-    total_count, nodes, has_next_page, end_cursor, rate_limit = parse_page(text)
-    print(f"Total merged PRs: {total_count}")
-    print(f"Nodes on page:    {len(nodes)}")
-    print(f"Has next page:    {has_next_page}")
-    print(f"End cursor:       {end_cursor}")
-    print(f"Cost:             {rate_limit['cost']}")
-    print(f"Remaining:        {rate_limit['remaining']}")
+def _rate_limit_wait(response, attempt):
+    """Seconds to wait before retrying a 403/429, or None if it is not a rate limit."""
+    retry_after = response.headers.get("Retry-After")
+    if retry_after is not None:
+        return int(retry_after)
+    if response.headers.get("x-ratelimit-remaining") == "0":
+        reset_at = int(response.headers["x-ratelimit-reset"])
+        return max(reset_at - time.time(), 0) + 1
+    if response.status_code == 429:
+        return compute_backoff(attempt)
+    return None  # 403 without rate-limit headers: a permission problem
 
 
-def check_cached_page(page_num):
-    file_path = RAW_DIR / f"page_{page_num:04d}.json"
-    text = file_path.read_text(encoding="utf-8")
-    _, nodes, _, _, _ = parse_page(text)
-    statuses = check_page(nodes, REPO_NAME)
-    print(f"Page {page_num}: {len(nodes)} nodes")
-    for status, count in statuses.most_common():
-        print(f"  {status:<18} {count}")
-    print(f"  {'total':<18} {sum(statuses.values())}")
+def fetch_with_retry(owner, name, cursor, first):
+    for attempt in range(MAX_ATTEMPTS):
+        try:
+            return fetch_page(owner, name, cursor, first)
+        except (requests.exceptions.Timeout, requests.exceptions.ConnectionError) as e:
+            reason = type(e).__name__
+            time_to_wait = compute_backoff(attempt)
+        except requests.exceptions.HTTPError as e:
+            status_code = e.response.status_code
+            reason = f"HTTP {status_code}"
+            if status_code >= 500:
+                time_to_wait = compute_backoff(attempt)
+            elif status_code in (403, 429):
+                time_to_wait = _rate_limit_wait(e.response, attempt)
+                if time_to_wait is None:
+                    raise
+            else:
+                raise
+
+        if attempt == MAX_ATTEMPTS - 1:
+            break
+        print(f"  retry {attempt + 1}/{MAX_ATTEMPTS - 1}: {reason}, waiting {time_to_wait:.0f}s")
+        time.sleep(time_to_wait)
+
+    raise RuntimeError(f"gave up after {MAX_ATTEMPTS} attempts ({reason})")                
 
 
 def main():
-    check_cached_page(1)
+    state_path = RAW_DIR / "state.json"
+    state = load_state(state_path)
+    cursor = state['cursor']
+    page_num = state['next_page']
+
+    while True:
+        if not state['has_next_page']:
+            break 
+        response_text = fetch_with_retry(OWNER, NAME, cursor, PAGE_SIZE)
+        save_raw_page(REPO_DIR, page_num, response_text)
+        total_count, nodes, has_next_page, end_cursor, rate_limit = parse_page(response_text)
+        statuses = check_page(nodes, REPO_NAME)
+        record_page(state, statuses, end_cursor, page_num+1, has_next_page, total_count, state_path)
+
+        print(f"Page Number:  {page_num}")
+        print(f"Nodes on page:{len(nodes)}")
+        print(f"Cost:         {rate_limit['cost']}")
+        print(f"Remaining:    {rate_limit['remaining']}")
+
+        cursor = end_cursor
+        page_num += 1 
+
+
+    print(Counter(state["statuses"].values()))
+    print(f"Total number of PR's processed: {len(state['statuses'])}")
+    print(state['total_count'])
+    print(state["statuses"].get("OpenHands/software-agent-sdk#4876"))
 
 
 if __name__ == '__main__':
     main()
+    
