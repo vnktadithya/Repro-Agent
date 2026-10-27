@@ -79,7 +79,7 @@ Also caused when the test path doesn't exist.
 ## Fri Oct 23, 2026 — Sprint 0: issue linking + path classifier
 
 ### Issue linking (closes the Oct 21 open question)
-- Source: The `closingIssuesReferences` field in the response object shows the list of issues closed by the PR which are recorded by GitHub. It covers all the links made in the UI 
+- Source: The `closingIssueReferences` field in the response object shows the list of issues closed by the PR which are recorded by GitHub. It covers all the links made in the UI 
 - Why not REST / body regex: REST has no linked issue data at all. And for the Regex, it misses the links present in the UI and also, regex cannot find the cross repo issue references. It just check the issue number and returns as if the issue was from that repo.
 - Known blind spot: when the test like `Fixes #xxxx` is present only in the commit message and not in the PR body, we will miss those PR's which affects the `recall` metric. I am not patching a fix around this right now. Will look into this in future. 
 - Check 2 scope (same repo only?): Yes, we select the PR's which solves the issues in the same repo only. We can confirm this by looking into the returned **JSON** Response. We just compare each closing reference's `repository.nameWithOwner` to the PR's own repo, and reject the PR if they don't match. Cross-Repo PR's are excluded for now.
@@ -168,17 +168,17 @@ Note: Feature PR's is a POSSIBLE EXTENSION in future.
 - Completeness denominator: `len(statuses)` = `totalCount`, 2739 = 2739
 
 ### State design
-- Shape of `state.json`: {"cursor": <pointer to next page>,
+- Shape of `state.json`: {"cursor": <points to the last PR in the current page>,
                           "next_page": <next page to be fetched>,
                           "total_count": <number of PRs in the repo>,
                           "has_next_page": <bool value defining if next page is present>,
                           "statuses": {"<owner/repo#pr_number>": <status>}
                           }
-- Key format: `<Owner>__<Repo_name>#<PR_number>`
+- Key format: `<Owner>/<Repo_name>#<PR_number>`
 - When it is written: once per page, in a single `save_state()` call inside `record_page()` function after the page is fectched, saved and checked.
 - Why statuses and cursor reach disk together: They both are the data fetched from each page during pagination. The cursor is a pointer pointing to the next page to fetch. It means, the current page entries should be updated while updating the cursor so that their statuses aren't lost. If cursor is updated before the statuses and if there is a failure in between, we lose the statuses of PR's in a page. If statuses are updated before cursor and if there is a failure in between, the cursor will be pointing to the same page leading to wasted fetch and rewrites the old entries  with the same information. They are written through atomic write where hey both land or neither does.
 - Why per-page keys were rejected: we are using PR-level keys, so that when a page is re-processed, the entries are overwritten, that the funnel count will not be doubled.
-- Atomic write: `record_page` updates the memory, `save_state` writes the whole new state into a temp file in the same directory. `os.replavce` then swaps it in with the already existing `state.json` file. So, when there is an interruption mid-write, the old `state.json` is left untouched.The temp file has to be in the same directory because os.replace is only atomic within one filesystem.
+- Atomic write: `record_page` updates the memory, `save_state` writes the whole new state into a temp file in the same directory. `os.replace` then swaps it in with the already existing `state.json` file. So, when there is an interruption mid-write, the old `state.json` is left untouched.The temp file has to be in the same directory because os.replace is only atomic within one filesystem.
 
 ### Retry policy
 | Condition | Retried? | Wait |
@@ -193,7 +193,7 @@ Note: Feature PR's is a POSSIBLE EXTENSION in future.
 | After `MAX_ATTEMPTS` | no | raises immediately with runtime error right after the `MAX_ATTEMPTS` without any wait |
 
 - Provenance: the funcitons `fetch_with_retry` and `_rate_limit_wait` are written by agent as the same logic is already written by me in my `rca-lora-scaling` project. Reusing the `compute_backoff` to handle wait time from `rca-lora-scaling` project.
-- Budget check (points per page × pages vs hourly budget): ! point per page, total of 55 pages which is a total of 55 points per the whole run again GitHub's GraphQL ratelimit of 5000 per hour. Rate limit could't have stopped this run. But, for the production level code, the rate limit handling is required where there can be too many requests.
+- Budget check (points per page × pages vs hourly budget): 1 point per page, total of 55 pages which is a total of 55 points per the whole run again GitHub's GraphQL ratelimit of 5000 per hour. Rate limit could't have stopped this run. But, for the production level code, the rate limit handling is required where there can be too many requests.
 
 ### Limitations
 - Created-order vs merge-time: 
@@ -216,11 +216,11 @@ Note: Feature PR's is a POSSIBLE EXTENSION in future.
 ### Bug: `next_page` saved as the current page
 - What slipped: Initially, I saved the current page number as `next_page` instead of `cur_page + 1` in `state.json` file. It won't lead to any issues in the initial run. But, when there is a failure in the mid-run and the pipeline stops, it starts from the stopped page when restarted. As the next_page field is pointing to the current page now, the cursor correctly fetches the next page contents as it is pointing to it, but it rewrites the previous page content as the `page_num` is pointing to it.
 - Why the tests missed it: there are no test cases to test this
-- Takeaway: always store the `next_page` field as `cur_page + 1` in the `state.jaon` file.
+- Takeaway: always store the `next_page` field as `cur_page + 1` in the `state.json` file.
 
 ### Measured
 - Run: 
-repo: `OpenHands/software-agent-sdk`, 2739 merged PRs (`totalCount`), 55 pages with 50 instances per page, coat per page is 1
+repo: `OpenHands/software-agent-sdk`, 2739 merged PRs (`totalCount`), 55 pages with 50 instances per page, cost per page is 1
 
 | Status | Count |
 |---|---|
