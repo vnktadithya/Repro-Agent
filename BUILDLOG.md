@@ -154,3 +154,88 @@ Note: Feature PR's is a POSSIBLE EXTENSION in future.
 
 ### Measured
 - Tests: `python -m pytest` → 31 tests passed
+
+---
+
+## Mon Oct 26, 2026 — Sprint 0: discovery (pagination, state, retries)
+
+### Query shape
+- Connection and arguments: connection is `repository(owner, name).pullRequests(...)`. Its arguments are `states: [MERGED]`, `orderBy: {field: CREATED_AT, direction: ASC}`, `first: $first` and `after: $cursor`. 
+- Fields per node: totalCount, pageInfo { hasNextPage endCursor }, nodes {number, merged, mergedAt, baseRefName, mergeCommit {oid}, commits {totalCount}, closingIssueRefrences(first: 5){ totalCount, nodes{number, repository {nameWithOwner}}}, files(first: 100) { totalCount, nodes{path, changeType}} }
+- Why `CREATED_AT ASC`: The cursor marks a position in the sort order. A PRs creation time never changes, so a cursor's position never changes. So, the pages stay identical across a run and a resume. With `UPDATED_AT` instead of `CREATED_AT ASC`, a PR edited mid-run would jump to a new position and get skipped or fetched twice.
+- What a cursor encodes: cursor points to the last PR of the page that is just fetched and it encodes the PR 's sort key. When decoded, it is `cursor:v2:` + the created-at timestamp + an integer id. `after:` cursor then returns the PRs after that position.
+- Why `states: [MERGED]`, and what it does to `not_merged`: it ensures that all the PR's which are fetched are merged and for any PR which is fetched, it's status cannot be `not_merged`.
+- Completeness denominator: `len(statuses)` = `totalCount`, 2739 = 2739
+
+### State design
+- Shape of `state.json`: {"cursor": <pointer to next page>,
+                          "next_page": <next page to be fetched>,
+                          "total_count": <number of PRs in the repo>,
+                          "has_next_page": <bool value defining if next page is present>,
+                          "statuses": {"<owner/repo#pr_number>": <status>}
+                          }
+- Key format: `<Owner>__<Repo_name>#<PR_number>`
+- When it is written: once per page, in a single `save_state()` call inside `record_page()` function after the page is fectched, saved and checked.
+- Why statuses and cursor reach disk together: They both are the data fetched from each page during pagination. The cursor is a pointer pointing to the next page to fetch. It means, the current page entries should be updated while updating the cursor so that their statuses aren't lost. If cursor is updated before the statuses and if there is a failure in between, we lose the statuses of PR's in a page. If statuses are updated before cursor and if there is a failure in between, the cursor will be pointing to the same page leading to wasted fetch and rewrites the old entries  with the same information. They are written through atomic write where hey both land or neither does.
+- Why per-page keys were rejected: we are using PR-level keys, so that when a page is re-processed, the entries are overwritten, that the funnel count will not be doubled.
+- Atomic write: `record_page` updates the memory, `save_state` writes the whole new state into a temp file in the same directory. `os.replavce` then swaps it in with the already existing `state.json` file. So, when there is an interruption mid-write, the old `state.json` is left untouched.The temp file has to be in the same directory because os.replace is only atomic within one filesystem.
+
+### Retry policy
+| Condition | Retried? | Wait |
+|---|---|---|
+| Timeout / ConnectionError | yes | wait for the time computed by `compute_backoff` based on the attempt |
+| 5xx | yes | wait for the time computed by `compute_backoff` based on the attempt |
+| 429 | yes | if `Retry-After`, wait according to it, else if `x-ratelimit-remaining: 0`, wait based on `x-ratelimit-reset` + 1, else computed by `compute_backoff` based on the attempt |
+| 403 with `Retry-After` or `x-ratelimit-remaining: 0` | yes | if `Retry-After`, wait according to it, else if `x-ratelimit-remaining: 0`, wait based on `x-ratelimit-reset` |
+| 403 without rate-limit headers | no | raises immediately |
+| 401 / 404 / other 4xx | no | raises immediately |
+| GraphQL `errors` in a 200 | no | raises immediately |
+| After `MAX_ATTEMPTS` | no | raises immediately with runtime error right after the `MAX_ATTEMPTS` without any wait |
+
+- Provenance: the funcitons `fetch_with_retry` and `_rate_limit_wait` are written by agent as the same logic is already written by me in my `rca-lora-scaling` project. Reusing the `compute_backoff` to handle wait time from `rca-lora-scaling` project.
+- Budget check (points per page × pages vs hourly budget): ! point per page, total of 55 pages which is a total of 55 points per the whole run again GitHub's GraphQL ratelimit of 5000 per hour. Rate limit could't have stopped this run. But, for the production level code, the rate limit handling is required where there can be too many requests.
+
+### Limitations
+- Created-order vs merge-time: 
+ -> The connection is sorted by creation date and filtered to MERGED.
+ -> A PR created before the cursor’s position that merges after that page was fetched lands behind the cursor.
+ -> A single run detects this: totalCount on the last page exceeds the PRs processed.
+ -> A resume run from the saved cursor misses it silently.
+- Snapshot date: 25 October 2026 22:47:50
+
+### Bug: double-encoding risk
+- What slipped: the `reponse.text` field from GraphQL response in already in json format. I tried to encode it again before saving it to json file
+- Why the tests missed it: because of a missing test which check the round trip `save_raw_page` -> `parse_page` returning a dict.
+- Takeaway: `response.text` is already a JSON string, so `json.dump` of it stores a quoted string, and `json.loads` returns a str, not a dict.
+
+### Bug: bare `repo_name`
+- What slipped: initially just used `repo_name` for the candidate check instead of `owner/repo_name` which lead to 18 cross_repo_issues which is false.
+- Why the tests missed it: every test passed the full name `OpenHands/software-agent-sdk`. So they didn't catch this issue.
+- Takeaway: a rule is only covered when some test feeds an input where that rule changes the output.
+
+### Bug: `next_page` saved as the current page
+- What slipped: Initially, I saved the current page number as `next_page` instead of `cur_page + 1` in `state.json` file. It won't lead to any issues in the initial run. But, when there is a failure in the mid-run and the pipeline stops, it starts from the stopped page when restarted. As the next_page field is pointing to the current page now, the cursor correctly fetches the next page contents as it is pointing to it, but it rewrites the previous page content as the `page_num` is pointing to it.
+- Why the tests missed it: there are no test cases to test this
+- Takeaway: always store the `next_page` field as `cur_page + 1` in the `state.jaon` file.
+
+### Measured
+- Run: 
+repo: `OpenHands/software-agent-sdk`, 2739 merged PRs (`totalCount`), 55 pages with 50 instances per page, coat per page is 1
+
+| Status | Count |
+|---|---|
+| no_closing_issue | 1782  |
+| candidate | 646 |
+| no_test_file | 161 |
+| no_source_file | 108 |
+| cross_repo_issue | 29 |
+| multiple_issues | 13 |
+| not_merged | 0 |
+| files_truncated | 0 |
+| **Total** | 2739|
+
+- Sum = `totalCount`: the sum of all the processed PR's is exactly equals to the count retuned by GraphQL API. `2739 = 2739`
+- PR #4876: a valid `candidate`
+- Resume test: stopped mid-run after fetching 17 pages and reran it. Exactly pickedup the state and fetched the remaining pages. compared the result with no-failure run. 
+ -> Result: `True 2739 2739`
+- Tests: all 31 tests passed
